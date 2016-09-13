@@ -45,7 +45,7 @@ func GetTokenWithClient(client *http.Client, c *Config) (token *Token, err error
 		return nil, err
 	}
 	if resp.StatusCode >= 400 {
-		return nil, errors.New((*resp).Status)
+		return nil, errors.New((*resp).Status + ":" + string(respBody))
 	}
 	json.Unmarshal(respBody, &token)
 	token.Timestamp = time.Now()
@@ -82,7 +82,7 @@ func (token *Token) TranslateWithClient(client *http.Client, text, from, to stri
 		return "", err
 	}
 	if resp.StatusCode >= 400 {
-		return "", errors.New((*resp).Status)
+		return "", errors.New((*resp).Status + ":" + string(respBody))
 	}
 	return
 }
