@@ -26,13 +26,16 @@ type Token struct {
 }
 
 func GetToken(c *Config) (token *Token, err error) {
+	return GetTokenWithClient(&http.Client{}, c)
+}
+func GetTokenWithClient(client *http.Client, c *Config) (token *Token, err error) {
 	values := make(url.Values)
 	values.Set("grant_type", c.GrantType)
 	values.Set("scope", c.ScopeUrl)
 	values.Set("client_id", c.ClientId)
 	values.Set("client_secret", c.ClientSecret)
 
-	resp, err := http.PostForm(c.AuthUrl, values)
+	resp, err := client.PostForm(c.AuthUrl, values)
 	if err != nil {
 		return nil, err
 	}
@@ -50,6 +53,9 @@ func GetToken(c *Config) (token *Token, err error) {
 }
 
 func (token *Token) Translate(text, from, to string) (result string, err error) {
+	return token.TranslateWithClient(&http.Client{}, text, from, to)
+}
+func (token *Token) TranslateWithClient(client *http.Client, text, from, to string) (result string, err error) {
 	window, err := time.ParseDuration(token.ExpiresIn + "s")
 	if err != nil {
 		return "", err
@@ -68,7 +74,6 @@ func (token *Token) Translate(text, from, to string) (result string, err error) 
 	req, err := http.NewRequest("GET", uri, nil)
 	req.Header.Add("Authorization", "Bearer "+token.AccessToken)
 	req.Header.Add("Content-Type", "text/plain")
-	client := http.Client{}
 	resp, err := client.Do(req)
 	defer resp.Body.Close()
 	bytes, err := ioutil.ReadAll((*resp).Body)
@@ -83,6 +88,9 @@ func (token *Token) Translate(text, from, to string) (result string, err error) 
 }
 
 func (token *Token) TranslateArray(texts []string, from, to string) (result []string, err error) {
+	return token.TranslateArrayWithClient(&http.Client{}, texts, from, to)
+}
+func (token *Token) TranslateArrayWithClient(client *http.Client, texts []string, from, to string) (result []string, err error) {
 	window, err := time.ParseDuration(string(token.ExpiresIn) + "s")
 	if err != nil {
 		return nil, err
@@ -127,7 +135,6 @@ func (token *Token) TranslateArray(texts []string, from, to string) (result []st
 	req, err := http.NewRequest("POST", uri, body)
 	req.Header.Add("Authorization", "Bearer "+token.AccessToken)
 	req.Header.Add("Content-Type", "text/xml")
-	client := http.Client{}
 	resp, err := client.Do(req)
 	defer resp.Body.Close()
 	respBody, err := ioutil.ReadAll((*resp).Body)
