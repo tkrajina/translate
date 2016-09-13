@@ -82,7 +82,7 @@ func (token *Token) TranslateWithClient(client *http.Client, text, from, to stri
 		return "", err
 	}
 	if resp.StatusCode >= 400 {
-		return "", errors.New((*resp).Status + ":" + string(respBody))
+		return "", errors.New((*resp).Status + ":" + string(bytes))
 	}
 	return
 }
