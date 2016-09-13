@@ -142,7 +142,7 @@ func (token *Token) TranslateArrayWithClient(client *http.Client, texts []string
 		return nil, err
 	}
 	if resp.StatusCode >= 400 {
-		return nil, errors.New((*resp).Status)
+		return nil, errors.New((*resp).Status + ":" + string(respBody))
 	}
 
 	type TranslateArrayResponse struct {
