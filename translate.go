@@ -9,9 +9,9 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
-	"strconv"
 )
 
 type Config struct {
@@ -37,7 +37,9 @@ func GetToken(c *Config) (token *Token, err error) {
 }
 func GetTokenWithClient(client *http.Client, c *Config) (token *Token, err error) {
 	token = &Token{config: c}
-	token.RefreshIfNeeded(client)
+	if err := token.RefreshIfNeeded(client); err != nil {
+		return nil, err
+	}
 	return
 }
 
