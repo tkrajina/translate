@@ -26,8 +26,8 @@ type Token struct {
 	AccessToken string `json:"access_token"`
 	ExpiresIn   string `json:"expires_in"`
 
-	Timestamp         time.Time `json:"-"`
-	config            *Config   `json:"-"`
+	timestamp         time.Time
+	config            *Config
 	reloadMutex       sync.Mutex
 	expiresInDuration time.Duration
 }
@@ -44,8 +44,7 @@ func GetTokenWithClient(client *http.Client, c *Config) (token *Token, err error
 }
 
 func (token Token) IsValid() bool {
-	fmt.Printf("%v .... %v\n", time.Since(token.Timestamp), token.expiresInDuration)
-	return token.expiresInDuration > 0 && time.Since(token.Timestamp) < token.expiresInDuration
+	return token.expiresInDuration > 0 && time.Since(token.timestamp) < token.expiresInDuration
 }
 
 func (token *Token) RefreshIfNeeded(client *http.Client) error {
@@ -56,7 +55,6 @@ func (token *Token) RefreshIfNeeded(client *http.Client) error {
 	token.reloadMutex.Lock()
 	defer token.reloadMutex.Unlock()
 
-	fmt.Println("Refresh")
 	values := make(url.Values)
 	values.Set("grant_type", token.config.GrantType)
 	values.Set("scope", token.config.ScopeUrl)
@@ -75,17 +73,14 @@ func (token *Token) RefreshIfNeeded(client *http.Client) error {
 	if resp.StatusCode >= 400 {
 		return errors.New((*resp).Status + ":" + string(respBody))
 	}
-	fmt.Println(string(respBody))
 	json.Unmarshal(respBody, &token)
-	token.Timestamp = time.Now()
+	token.timestamp = time.Now()
 
 	expiresIn, err := strconv.ParseInt(token.ExpiresIn, 10, 64)
 	if err != nil {
 		return fmt.Errorf("Invalid expires_in: %s", token.ExpiresIn)
 	}
 	token.expiresInDuration = time.Duration(expiresIn) * time.Second
-
-	fmt.Println("now", token.IsValid())
 
 	return nil
 }
