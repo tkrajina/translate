@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
+	"strconv"
 )
 
 type Config struct {
@@ -20,48 +23,77 @@ type Config struct {
 }
 
 type Token struct {
-	AccessToken string    `json:"access_token"`
-	Timestamp   time.Time `json:"-"`
-	ExpiresIn   string    `json:"expires_in"`
+	AccessToken string `json:"access_token"`
+	ExpiresIn   string `json:"expires_in"`
+
+	Timestamp         time.Time `json:"-"`
+	config            *Config   `json:"-"`
+	reloadMutex       sync.Mutex
+	expiresInDuration time.Duration
 }
 
 func GetToken(c *Config) (token *Token, err error) {
 	return GetTokenWithClient(&http.Client{}, c)
 }
 func GetTokenWithClient(client *http.Client, c *Config) (token *Token, err error) {
-	values := make(url.Values)
-	values.Set("grant_type", c.GrantType)
-	values.Set("scope", c.ScopeUrl)
-	values.Set("client_id", c.ClientId)
-	values.Set("client_secret", c.ClientSecret)
+	token = &Token{config: c}
+	token.RefreshIfNeeded(client)
+	return
+}
 
-	resp, err := client.PostForm(c.AuthUrl, values)
+func (token Token) IsValid() bool {
+	fmt.Printf("%v .... %v\n", time.Since(token.Timestamp), token.expiresInDuration)
+	return token.expiresInDuration > 0 && time.Since(token.Timestamp) < token.expiresInDuration
+}
+
+func (token *Token) RefreshIfNeeded(client *http.Client) error {
+	if token.IsValid() {
+		return nil
+	}
+
+	token.reloadMutex.Lock()
+	defer token.reloadMutex.Unlock()
+
+	fmt.Println("Refresh")
+	values := make(url.Values)
+	values.Set("grant_type", token.config.GrantType)
+	values.Set("scope", token.config.ScopeUrl)
+	values.Set("client_id", token.config.ClientId)
+	values.Set("client_secret", token.config.ClientSecret)
+
+	resp, err := client.PostForm(token.config.AuthUrl, values)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
 	respBody, err := ioutil.ReadAll((*resp).Body)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if resp.StatusCode >= 400 {
-		return nil, errors.New((*resp).Status + ":" + string(respBody))
+		return errors.New((*resp).Status + ":" + string(respBody))
 	}
+	fmt.Println(string(respBody))
 	json.Unmarshal(respBody, &token)
 	token.Timestamp = time.Now()
-	return
+
+	expiresIn, err := strconv.ParseInt(token.ExpiresIn, 10, 64)
+	if err != nil {
+		return fmt.Errorf("Invalid expires_in: %s", token.ExpiresIn)
+	}
+	token.expiresInDuration = time.Duration(expiresIn) * time.Second
+
+	fmt.Println("now", token.IsValid())
+
+	return nil
 }
 
 func (token *Token) Translate(text, from, to string) (result string, err error) {
 	return token.TranslateWithClient(&http.Client{}, text, from, to)
 }
 func (token *Token) TranslateWithClient(client *http.Client, text, from, to string) (result string, err error) {
-	window, err := time.ParseDuration(token.ExpiresIn + "s")
-	if err != nil {
+	if err := token.RefreshIfNeeded(client); err != nil {
 		return "", err
-	}
-	if token.Timestamp.Add(window).Before(time.Now()) {
-		return "", errors.New("Access token expired")
 	}
 	if text == "" {
 		return "", errors.New("\"text\" is a required parameter")
@@ -91,12 +123,8 @@ func (token *Token) TranslateArray(texts []string, from, to string) (result []st
 	return token.TranslateArrayWithClient(&http.Client{}, texts, from, to)
 }
 func (token *Token) TranslateArrayWithClient(client *http.Client, texts []string, from, to string) (result []string, err error) {
-	window, err := time.ParseDuration(string(token.ExpiresIn) + "s")
-	if err != nil {
+	if err := token.RefreshIfNeeded(client); err != nil {
 		return nil, err
-	}
-	if token.Timestamp.Add(window).Before(token.Timestamp.UTC()) {
-		return nil, errors.New("Access token expired")
 	}
 	if texts == nil {
 		return nil, errors.New("\"texts\" is a required parameter")
