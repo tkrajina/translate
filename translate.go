@@ -2,7 +2,6 @@ package translate
 
 import (
 	"bytes"
-	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -14,33 +13,46 @@ import (
 	"time"
 )
 
-type Config struct {
-	GrantType    string
-	ScopeUrl     string
-	ClientId     string
-	ClientSecret string
-	AuthUrl      string
-}
+const bingSpeechTokenEndpoint = "https://api.cognitive.microsoft.com/sts/v1.0/issueToken"
 
 type Token struct {
 	AccessToken string `json:"access_token"`
-	ExpiresIn   string `json:"expires_in"`
 
 	timestamp         time.Time
-	config            *Config
 	reloadMutex       sync.Mutex
 	expiresInDuration time.Duration
 }
 
-func GetToken(c *Config) (token *Token, err error) {
-	return GetTokenWithClient(&http.Client{}, c)
-}
-func GetTokenWithClient(client *http.Client, c *Config) (token *Token, err error) {
-	token = &Token{config: c}
-	if err := token.RefreshIfNeeded(client); err != nil {
+func GetTokenWithClient(client *http.Client, key string) (*Token, error) {
+	req, err := http.NewRequest("POST", bingSpeechTokenEndpoint, nil)
+	if err != nil {
 		return nil, err
 	}
-	return
+
+	req.Header.Add("Ocp-Apim-Subscription-Key", key)
+	req.Header.Add("Content-Length", "0")
+
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s", res.Status)
+	}
+
+	defer res.Body.Close()
+	size, err := strconv.Atoi(res.Header.Get("Content-Length"))
+	if err != nil {
+		return nil, err
+	}
+	buf := make([]byte, size)
+	res.Body.Read(buf)
+	return &Token{AccessToken: string(buf)}, nil
+}
+
+func GetToken(key string) (*Token, error) {
+	client := &http.Client{}
+	return GetTokenWithClient(client, key)
 }
 
 func (token Token) IsValid() bool {
@@ -48,40 +60,6 @@ func (token Token) IsValid() bool {
 }
 
 func (token *Token) RefreshIfNeeded(client *http.Client) error {
-	if token.IsValid() {
-		return nil
-	}
-
-	token.reloadMutex.Lock()
-	defer token.reloadMutex.Unlock()
-
-	values := make(url.Values)
-	values.Set("grant_type", token.config.GrantType)
-	values.Set("scope", token.config.ScopeUrl)
-	values.Set("client_id", token.config.ClientId)
-	values.Set("client_secret", token.config.ClientSecret)
-
-	resp, err := client.PostForm(token.config.AuthUrl, values)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	respBody, err := ioutil.ReadAll((*resp).Body)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode >= 400 {
-		return errors.New((*resp).Status + ":" + string(respBody))
-	}
-	json.Unmarshal(respBody, &token)
-	token.timestamp = time.Now()
-
-	expiresIn, err := strconv.ParseInt(token.ExpiresIn, 10, 64)
-	if err != nil {
-		return fmt.Errorf("Invalid expires_in: %s", token.ExpiresIn)
-	}
-	token.expiresInDuration = time.Duration(expiresIn) * time.Second
-
 	return nil
 }
 
